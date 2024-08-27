@@ -13,13 +13,15 @@ pub enum Spin {
 #[derive(Clone, PartialEq, Debug)]
 pub struct ExternalVars {
     temperature: f64,
-    applied_field: (f64, f64),
+    applied_field: f64,
 }
 
 #[derive(Clone)]
 pub struct LocalState {
     env: ExternalVars,
     spin: Spin,
+    local_energy: f64,
+
 }
 
 pub struct Ising2D {
@@ -97,7 +99,7 @@ impl Ising2D {
             Spin::Up => 1.0,
             Spin::Down => -1.0,
         };
-        let field_alignment = -state.env.applied_field.0 * state.env.applied_field.1 * spin;
+        let field_alignment = -state.env.applied_field * spin;
         let neighbor_energy: f64 = self
             .nearest_neighbor(x, y)
             .iter()
@@ -131,7 +133,7 @@ impl Ising2D {
             .sum::<f64>()
             / 2.0
     }
-    pub fn metropolis_algo(&mut self) {
+    pub fn metropolis_step(&mut self) {
         let mut rng = rand::thread_rng();
         let x = rng.gen_range(0..self.length);
         let y = rng.gen_range(0..self.width);
