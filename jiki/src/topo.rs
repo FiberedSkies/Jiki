@@ -1,5 +1,9 @@
 use std::collections::HashSet;
 
+use rand::Rng;
+
+const BOLTZMANN: f64 = 1.380649e-23;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Spin {
     Up,
@@ -126,6 +130,32 @@ impl Ising2D {
             })
             .sum::<f64>()
             / 2.0
+    }
+    pub fn metropolis_algo(&mut self) {
+        let mut rng = rand::thread_rng();
+        let x = rng.gen_range(0..self.length);
+        let y = rng.gen_range(0..self.width);
+
+        let energy = self.local_energy(x, y);
+
+        let mut new_state = self.get_state(x, y).unwrap().clone();
+        new_state.spin = match new_state.spin {
+            Spin::Up => Spin::Down,
+            Spin::Down => Spin::Up,
+        };
+        self.set_state(x, y, new_state.clone()).unwrap();
+        let new_energy = self.local_energy(x, y);
+        let diff = new_energy - energy;
+        let temp = new_state.env.temperature;
+        if diff > 0.0 && rng.gen::<f64>() > (-diff / (BOLTZMANN * temp)).exp() {
+        } else if diff < 0.0 {
+        } else {
+            new_state.spin = match new_state.spin {
+                Spin::Up => Spin::Down,
+                Spin::Down => Spin::Up,
+            };
+            self.set_state(x, y, new_state.clone()).unwrap();
+        }
     }
 }
 
