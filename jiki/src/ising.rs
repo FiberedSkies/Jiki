@@ -3,21 +3,24 @@
 
  use rand::Rng;
 
+use crate::topology::*;
+
 pub const BOLTZMANN: f64 = 1.380649e-23;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum Spin {
     Up,
     Down,
 }
 
+#[derive(Clone)]
 pub struct Lattice {
-    dimension: usize,
-    size: Vec<usize>,
+    pub dimension: usize,
+    pub size: Vec<usize>,
 }
 
 impl Lattice {
-    pub fn new(dimension: usize) -> Lattice {
+    pub fn new(dimension: usize) -> Self {
         Lattice {
             dimension,
             size: Vec::new(),
@@ -28,25 +31,34 @@ impl Lattice {
         assert!(size.len() == self.dimension, "size vector does not match dimension of lattice");
         self.size = size;
     }
+
+    pub fn all_points(&self) -> impl Iterator<Item = LatticePoint> + '_ {
+        (0..self.dimension)
+            .map(|d| 0..self.size[d])
+            .multi_cartesian_product()
+    }
 }
 
 pub struct Ising {
-    lattice: Lattice,
-    spins: HashMap<Vec<usize>, Spin>,
-    coupling: f64,
-    applied_field: f64,
-    temperature: f64,
+    pub lattice: Lattice,
+    pub spins: HashMap<Vec<usize>, Spin>,
+    pub coupling: f64,
+    pub applied_field: f64,
+    pub temperature: f64,
+    pub topology: Topology,
 }
 
 impl Ising {
-    pub fn new(lattice: Lattice, coupling: f64, applied_field: f64, temperature: f64) -> Ising {
+    pub fn new(lattice: Lattice, coupling: f64, applied_field: f64, temperature: f64) -> Self {
         let spins = (0..lattice.dimension).map(|d| 0..lattice.size[d]).multi_cartesian_product().map(|idx| (idx, Spin::Up)).collect::<HashMap<Vec<usize>, Spin>>();
+        let topology = Topology::new(lattice.clone());
         Ising {
             lattice,
             spins,
             coupling,
             applied_field,
-            temperature
+            temperature,
+            topology
         }
     }
 
@@ -120,6 +132,14 @@ impl Ising {
             };
             self.set_spin(idx.as_slice(), new_spin);
         }
+    }
+
+    pub fn get_up_spin_set(&self) -> OpenSet {
+        self.topology.open_set_from_spins(self, Spin::Up)
+    }
+
+    pub fn get_down_spin_set(&self) -> OpenSet {
+        self.topology.open_set_from_spins(self, Spin::Down)
     }
 }
 
