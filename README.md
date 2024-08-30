@@ -1,0 +1,5 @@
+# Jiki
+
+Critical phenomena are characterized by scale invariant correlations and global outcomes heavily defined by local behavior. In practice these phenomena are studied most often through the lens of Renormalization Group Theory, however, I've been quite curious what insights a sheaf theoretic approach may grant, being that sheaves are ideal candidates to study similar local to global connections. That being said, the connection between sheaf cohomology and the potential scaling laws that may arise isn't exactly clear to me quite yet, so I figured a neat way to experiment with this and gather some intuition would be to simulate it.
+
+This simulation is structured around the Ising model, with topologies defined lazily via a collection of basis lattice points. Currently, it implements the metropolis step, although likely will need another method like Heat-Bath in order to get more clear insights around criticality.
