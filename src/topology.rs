@@ -89,7 +89,7 @@ pub mod sheaf {
 
     use super::*;
 
-    #[derive(Clone)]
+    #[derive(Clone, PartialEq)]
     pub struct Observables {
         energy: f64,
         spin: f64,
@@ -118,12 +118,12 @@ pub mod sheaf {
 
     type Section = BTreeMap<LatticePoint, Observables>;
 
-    pub struct PreSheaf {
+    pub struct Sheaf {
         topology: Topology,
         sections: HashMap<OpenSet, Section>,
     }
 
-    impl PreSheaf {
+    impl Sheaf {
         pub fn new(topology: Topology, ising: &Ising) -> Self {
             let mut sections = HashMap::new();
             topology.basis.iter().for_each(|openset| {
@@ -136,7 +136,7 @@ pub mod sheaf {
                 });
                 sections.insert(openset.clone(), section);
             });
-            PreSheaf { topology, sections }
+            Sheaf { topology, sections }
         }
 
         pub fn get_section(&self, open_set: &OpenSet) -> Section {
@@ -154,5 +154,80 @@ pub mod sheaf {
             }
             section
         }
+
+        pub fn get_oset_from_section(&self, section: &Section) ->  Result<OpenSet, String> {
+            if self.sections.iter().any(|(k, sec)| sec == section) == false {
+                Err("Invalid section".to_string())
+            } else {
+            let mut oset: OpenSet = Vec::new();
+            self.sections.iter().filter_map(|(k, _sec)| Some(oset = k.to_vec()));
+            Ok(oset)
+            }
+        }
+
+        pub fn restrict(&self, larger_oset: OpenSet, target_oset: &OpenSet) -> Result<Section, String> {
+            if target_oset.iter().all(|point| larger_oset.contains(point)) == false {
+                Err("Target Open Set is not a subset of the provided start set!".to_string())
+            } else {
+                let start = self.get_section(&larger_oset);
+                let mut restricted_section: BTreeMap<LatticePoint, Observables> = BTreeMap::new();
+                for (point, obs) in start.iter() {
+                    restricted_section.insert(point.clone(), obs.clone());
+                }
+                Ok(restricted_section)
+            }
+        }
+
+        pub fn can_glue(&self, first_section: &Section, second_section: &Section) -> bool {
+            if self.sections.iter().any(|(k, sec)| sec == first_section || sec == second_section) == false  {
+                false
+            } else {
+                let first_oset = self.get_oset_from_section(first_section).unwrap();
+                let second_oset = self.get_oset_from_section(second_section).unwrap();
+                if first_oset.iter().any(|point| second_oset.contains(point)) == false {
+                    false
+                } else {
+                    let mut intersection: OpenSet = Vec::new();
+                    let _ = first_oset.iter().filter(|point| 
+                    if second_oset.iter().contains(point) {
+                        intersection.push(point.to_vec());
+                        Some(()).is_some()
+                    } else {
+                        None::<usize>.is_some()
+                    }
+                    );
+                    let restricted_first = first_section.iter().filter_map(|(point, obs)| {
+                        if intersection.iter().contains(point) {
+                            Some((point.clone(), obs.clone()))
+                        } else {
+                            None
+                        }
+                    }).collect::<Section>();
+                    let restricted_second = second_section.iter().filter_map(|(point, obs)| {
+                        if intersection.iter().contains(point) {
+                            Some((point.clone(), obs.clone()))
+                        } else {
+                            None
+                        }
+                    }).collect::<Section>();
+                    if restricted_first.iter().zip(restricted_second).all(|((_, first), (_, second))| first == &second) == false {
+                        false
+                    } else {
+                        true
+                    }
+                }
+            }
+        }
+
+        pub fn glue(&self, first_section: &Section, second_section: &Section) -> Result<Section, String> {
+            if self.can_glue(first_section, second_section) == false {
+                Err("Cannot glue these sections".to_string())
+            } else {
+                
+                Ok()
+            }
+        }            
     }
+
+
 }
