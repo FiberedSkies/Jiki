@@ -178,14 +178,14 @@ pub mod sheaf {
             }
         }
 
-        pub fn can_glue(&self, first_section: &Section, second_section: &Section) -> bool {
+        pub fn glue(&self, first_section: &Section, second_section: &Section) -> Result<Section, String> {
             if self.sections.iter().any(|(k, sec)| sec == first_section || sec == second_section) == false  {
-                false
+                Err("Invalid sections!".to_string())
             } else {
                 let first_oset = self.get_oset_from_section(first_section).unwrap();
                 let second_oset = self.get_oset_from_section(second_section).unwrap();
                 if first_oset.iter().any(|point| second_oset.contains(point)) == false {
-                    false
+                    Err("The open sets do not overlap".to_string())
                 } else {
                     let mut intersection: OpenSet = Vec::new();
                     let _ = first_oset.iter().filter(|point| 
@@ -211,20 +211,29 @@ pub mod sheaf {
                         }
                     }).collect::<Section>();
                     if restricted_first.iter().zip(restricted_second).all(|((_, first), (_, second))| first == &second) == false {
-                        false
+                        Err("the sections do not agree on the overlap".to_string())
                     } else {
-                        true
+                        let mut final_section: Section = BTreeMap::new();
+                        let remaining_second = second_section.iter().filter_map(|(point, obs)| {
+                            if intersection.iter().contains(point) {
+                                None
+                            } else {
+                                Some((point.clone(), obs.clone()))
+                            }
+                        }).collect::<Section>();
+                        let remaining_first = first_section.iter().filter_map(|(point, obs)| {
+                            if intersection.iter().contains(point) {
+                                None
+                            } else {
+                                Some((point.clone(), obs.clone()))
+                            }
+                        }).collect::<Section>();
+                        final_section.extend(remaining_first);
+                        final_section.extend(remaining_second);
+                        final_section.extend(restricted_first);
+                        Ok(final_section)
                     }
                 }
-            }
-        }
-
-        pub fn glue(&self, first_section: &Section, second_section: &Section) -> Result<Section, String> {
-            if self.can_glue(first_section, second_section) == false {
-                Err("Cannot glue these sections".to_string())
-            } else {
-                
-                Ok()
             }
         }            
     }
