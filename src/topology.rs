@@ -2,7 +2,7 @@ use itertools::Itertools;
 
 use crate::ising::*;
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 pub type LatticePoint = Vec<usize>;
 pub type OpenSet = Vec<LatticePoint>;
@@ -22,59 +22,37 @@ impl Topology {
                 .multi_cartesian_product()
                 .collect::<Vec<Vec<usize>>>(),
         );
+        (0..lattice.dimension)
+            .map(|d| 0..lattice.size[d])
+            .multi_cartesian_product()
+            .collect::<Vec<Vec<usize>>>().iter().map(|p| {
+                basis.insert(vec![p.to_vec()])
+            });
         Topology { lattice, basis }
     }
 
-    pub fn add_basis(&mut self, set: OpenSet) {
-        self.basis.insert(set);
+    pub fn intersection(&self, mut sets: Vec<OpenSet>) -> OpenSet {
+        if sets.is_empty() {
+            return Vec::new()
+        }
+        let mut intersection = sets.pop().unwrap();
+        for set in sets {
+            intersection = intersection.into_iter().filter(|&point| set.contains(&point)).collect();
+        };
+        intersection
     }
 
-    pub fn union<'a>(&self, sets: impl IntoIterator<Item = &'a OpenSet>) -> OpenSet {
-        let mut result = BTreeSet::new();
+    pub fn union(&self, sets: Vec<OpenSet>) -> OpenSet {
+        if sets.is_empty() {
+            return Vec::new()
+        }
+        let mut result = Vec::new();
         for set in sets {
             result.extend(set.iter().cloned());
         }
         result.into_iter().collect()
     }
 
-    pub fn is_open(&self, set: &OpenSet) -> bool {
-        let set: BTreeSet<_> = set.iter().cloned().collect();
-        self.basis.iter().all(|base| {
-            base.iter().all(|point| set.contains(point))
-                || base.iter().all(|point| !set.contains(point))
-        })
-    }
-
-    pub fn is_closed(&self, set: &OpenSet) -> bool {
-        let complement: OpenSet = self
-            .lattice
-            .all_points()
-            .filter(|point| !set.contains(point))
-            .collect();
-        self.is_open(&complement)
-    }
-
-    pub fn get_open_neighborhood(&self, point: &LatticePoint) -> OpenSet {
-        self.basis
-            .iter()
-            .filter(|set| set.contains(point))
-            .fold(Vec::new(), |acc, set| {
-                self.union([&acc, set].iter().copied())
-            })
-    }
-
-    pub fn closure(&self, set: &OpenSet) -> OpenSet {
-        self.lattice
-            .all_points()
-            .filter(|point| {
-                let neighborhood = self.get_open_neighborhood(point);
-                !neighborhood.iter().all(|p| !set.contains(p))
-            })
-            .collect()
-    }
-}
-
-impl Topology {
     pub fn open_set_from_spins(&self, ising: &Ising, spin: Spin) -> OpenSet {
         ising
             .lattice
@@ -90,14 +68,14 @@ pub mod sheaf {
     use super::*;
 
     #[derive(Clone, PartialEq)]
-    pub struct Observables {
-        energy: f64,
-        spin: f64,
-        correlation: f64,
+    pub enum Observable {
+        Energy,
+        Spin,
+        Correlation,
     }
 
-    impl Observables {
-        pub fn compute(ising: &Ising, idx: LatticePoint) -> Result<Self, String> {
+    impl Observable {
+        pub fn compute(ising: &Ising, idx: LatticePoint, obs: Observable) -> Result<f64, String> {
             if idx
                 .iter()
                 .zip(&ising.lattice.size)
@@ -105,63 +83,116 @@ pub mod sheaf {
             {
                 return Err("Invalid Index".to_string());
             }
-            Ok(Observables {
-                energy: ising.local_energy(idx.as_slice()).unwrap(),
-                spin: match ising.get_spin(idx.as_slice()).unwrap() {
+            let result = match obs {
+                Observable::Energy => ising.local_energy(idx.as_slice()).unwrap(),
+                Observable::Spin => match ising.get_spin(idx.as_slice()).unwrap() {
                     Spin::Up => 1.0,
                     Spin::Down => -1.0,
                 },
-                correlation: ising.correlation(idx.as_slice()).unwrap(),
-            })
+                Observable::Correlation => ising.correlation(idx.as_slice()).unwrap(),
+            };
+            Ok(result)
         }
     }
 
-    type Section = BTreeMap<LatticePoint, Observables>;
+    type Section = BTreeMap<LatticePoint, f64>;
 
     pub struct Sheaf {
         topology: Topology,
-        sections: HashMap<OpenSet, Section>,
+        energy_sections: HashMap<OpenSet, Section>,
+        spin_sections: HashMap<OpenSet, Section>,
+        correlation_sections: HashMap<OpenSet, Section>,
     }
 
     impl Sheaf {
         pub fn new(topology: Topology, ising: &Ising) -> Self {
-            let mut sections = HashMap::new();
+            let mut energy_sections = HashMap::new();
+            let mut spin_sections = HashMap::new();
+            let mut correlation_sections = HashMap::new();
             topology.basis.iter().for_each(|openset| {
-                let mut section = BTreeMap::new();
+                let mut energy_section = BTreeMap::new();
+                let mut spin_section = BTreeMap::new();
+                let mut correlation_section = BTreeMap::new();
                 openset.iter().for_each(|point| {
-                    section.insert(
+                    energy_section.insert(
                         point.clone(),
-                        Observables::compute(ising, point.clone()).unwrap(),
+                        Observable::compute(ising, point.clone(), Observable::Energy).unwrap(),
+                    );
+                    spin_section.insert(
+                        point.clone(),
+                        Observable::compute(ising, point.clone(), Observable::Spin).unwrap(),
+                    );
+                    correlation_section.insert(
+                        point.clone(),
+                        Observable::compute(ising, point.clone(), Observable::Correlation).unwrap(),
                     );
                 });
-                sections.insert(openset.clone(), section);
+                energy_sections.insert(openset.clone(), energy_section);
+                spin_sections.insert(openset.clone(), spin_section);
+                correlation_sections.insert(openset.clone(), correlation_section);
             });
-            Sheaf { topology, sections }
+            Sheaf { topology, energy_sections, spin_sections, correlation_sections }
         }
 
-        pub fn get_section(&self, open_set: &OpenSet) -> Section {
+        pub fn get_section(&self, open_set: &OpenSet, obs: Observable) -> Section {
             let mut section = BTreeMap::new();
             for point in open_set {
-                if let Some((_, basis_section)) = self
-                    .sections
-                    .iter()
-                    .find(|(basis_set, _)| basis_set.contains(point))
-                {
-                    if let Some(observables) = basis_section.get(point) {
-                        section.insert(point.clone(), observables.clone());
-                    }
+                match obs {
+                    Observable::Energy => {if let Some((_, basis_section)) = self
+                        .energy_sections
+                        .iter()
+                        .find(|(basis_set, _)| basis_set.contains(point))
+                    {
+                        if let Some(observables) = basis_section.get(point) {
+                            section.insert(point.clone(), observables.clone());
+                        }
+                    }},
+                    Observable::Spin => {if let Some((_, basis_section)) = self
+                        .spin_sections
+                        .iter()
+                        .find(|(basis_set, _)| basis_set.contains(point))
+                    {
+                        if let Some(observables) = basis_section.get(point) {
+                            section.insert(point.clone(), observables.clone());
+                        }
+                    }},
+                    Observable::Correlation => {if let Some((_, basis_section)) = self
+                        .correlation_sections
+                        .iter()
+                        .find(|(basis_set, _)| basis_set.contains(point))
+                    {
+                        if let Some(observables) = basis_section.get(point) {
+                            section.insert(point.clone(), observables.clone());
+                        }
+                    }},
                 }
             }
             section
         }
 
-        pub fn get_oset_from_section(&self, section: &Section) ->  Result<OpenSet, String> {
-            if self.sections.iter().any(|(k, sec)| sec == section) == false {
-                Err("Invalid section".to_string())
-            } else {
-            let mut oset: OpenSet = Vec::new();
-            self.sections.iter().filter_map(|(k, _sec)| Some(oset = k.to_vec()));
-            Ok(oset)
+        pub fn get_oset_from_section(&self, section: &Section, obs: Observable) ->  Result<OpenSet, String> {
+            match obs {
+                Observable::Energy => {if self.energy_sections.iter().any(|(k, sec)| sec == section) == false {
+                    Err("Invalid section".to_string())
+                } else {
+                let mut oset: OpenSet = Vec::new();
+                self.energy_sections.iter().filter_map(|(k, _sec)| Some(oset = k.to_vec()));
+                Ok(oset)
+                }},
+                Observable::Spin => {if self.spin_sections.iter().any(|(k, sec)| sec == section) == false {
+                    Err("Invalid section".to_string())
+                } else {
+                let mut oset: OpenSet = Vec::new();
+                self.spin_sections.iter().filter_map(|(k, _sec)| Some(oset = k.to_vec()));
+                Ok(oset)
+                }},
+                Observable::Correlation => {if self.correlation_sections.iter().any(|(k, sec)| sec == section) == false {
+                    Err("Invalid section".to_string())
+                } else {
+                let mut oset: OpenSet = Vec::new();
+                self.correlation_sections.iter().filter_map(|(k, _sec)| Some(oset = k.to_vec()));
+                Ok(oset)
+                }},
             }
         }
 
