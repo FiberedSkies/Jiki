@@ -2,7 +2,7 @@ use itertools::Itertools;
 
 use crate::ising::*;
 
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::HashSet;
 
 pub type LatticePoint = Vec<usize>;
 pub type OpenSet = Vec<LatticePoint>;
@@ -64,7 +64,6 @@ impl Topology {
 
 pub mod sheaf {
     use std::collections::{BTreeMap, HashMap};
-    use std::rc::Rc;
 
     use super::*;
 
@@ -163,64 +162,65 @@ pub mod sheaf {
             }
         }
 
-        // pub fn glue(&self, first_section: &Section, second_section: &Section) -> Result<Section, String> {
-        //     if self.sections.iter().any(|(k, sec)| sec == first_section || sec == second_section) == false  {
-        //         Err("Invalid sections!".to_string())
-        //     } else {
-        //         let first_oset = self.get_oset_from_section(first_section).unwrap();
-        //         let second_oset = self.get_oset_from_section(second_section).unwrap();
-        //         if first_oset.iter().any(|point| second_oset.contains(point)) == false {
-        //             Err("The open sets do not overlap".to_string())
-        //         } else {
-        //             let mut intersection: OpenSet = Vec::new();
-        //             let _ = first_oset.iter().filter(|point| 
-        //             if second_oset.iter().contains(point) {
-        //                 intersection.push(point.to_vec());
-        //                 Some(()).is_some()
-        //             } else {
-        //                 None::<usize>.is_some()
-        //             }
-        //             );
-        //             let restricted_first = first_section.iter().filter_map(|(point, obs)| {
-        //                 if intersection.iter().contains(point) {
-        //                     Some((point.clone(), obs.clone()))
-        //                 } else {
-        //                     None
-        //                 }
-        //             }).collect::<Section>();
-        //             let restricted_second = second_section.iter().filter_map(|(point, obs)| {
-        //                 if intersection.iter().contains(point) {
-        //                     Some((point.clone(), obs.clone()))
-        //                 } else {
-        //                     None
-        //                 }
-        //             }).collect::<Section>();
-        //             if restricted_first.iter().zip(restricted_second).all(|((_, first), (_, second))| first == &second) == false {
-        //                 Err("the sections do not agree on the overlap".to_string())
-        //             } else {
-        //                 let mut final_section: Section = BTreeMap::new();
-        //                 let remaining_second = second_section.iter().filter_map(|(point, obs)| {
-        //                     if intersection.iter().contains(point) {
-        //                         None
-        //                     } else {
-        //                         Some((point.clone(), obs.clone()))
-        //                     }
-        //                 }).collect::<Section>();
-        //                 let remaining_first = first_section.iter().filter_map(|(point, obs)| {
-        //                     if intersection.iter().contains(point) {
-        //                         None
-        //                     } else {
-        //                         Some((point.clone(), obs.clone()))
-        //                     }
-        //                 }).collect::<Section>();
-        //                 final_section.extend(remaining_first);
-        //                 final_section.extend(remaining_second);
-        //                 final_section.extend(restricted_first);
-        //                 Ok(final_section)
-        //             }
-        //         }
-        //     }
-        // }            
+        pub fn glue(&mut self, open_sets: &'a mut Vec<OpenSet>) -> Result<Vec<Section<'a>>, String> {
+            let intersection = self.topology.intersection(open_sets.clone());
+            if intersection.len() == 0 {
+                return Err("Open sets provided do not overlap!".to_string())
+            }
+            let mut all_sections: Vec<Vec<&Section>> = Vec::new();
+            for oset in open_sets {
+                all_sections.push(self.sections.values().map(|obs_sections| {
+                    obs_sections.get(oset).unwrap()
+                }).collect());
+            }
+            let mut all_restricted_sections: Vec<Vec<Section>> = all_sections.iter().map(|sections| {
+                let restricted_secs: Vec<Section> = sections.iter().map(|&sections| {
+                    let rest_sec: Section = sections.iter().filter_map(|(&point, &val)| {
+                        if intersection.contains(point) {
+                            Some((point, val))
+                        } else {
+                            None
+                        }
+                    }).collect();
+                    rest_sec
+                }).collect();
+                restricted_secs
+            }).collect();
+
+            let mut compliment_sections: Vec<Vec<Section>> = all_sections.iter().map(|sections| {
+                let restricted_secs: Vec<Section> = sections.iter().map(|&sections| {
+                    let rest_sec: Section = sections.iter().filter_map(|(&point, &val)| {
+                        if !intersection.contains(point) {
+                            Some((point, val))
+                        } else {
+                            None
+                        }
+                    }).collect();
+                    rest_sec
+                }).collect();
+                restricted_secs
+            }).collect();
+
+            let mut glued_sections: Vec<Section> = Vec::new();
+            let mut comparison = all_restricted_sections.pop().unwrap();
+            for obs in 0..3 {
+                let mut glued_observable: Section = BTreeMap::new(); 
+                let mut can_glue = Vec::new();
+                for point in &intersection {
+                    let comparison_val = comparison[obs].get(point);
+                    can_glue.push(all_restricted_sections.iter().all(|sections| sections[obs].get(point) == comparison_val));
+                }
+                if can_glue.into_iter().all(|val| val == true) {
+                    glued_observable.append(&mut comparison[obs]);
+                    while let Some(sec) = compliment_sections.pop() {
+                        let mut obs_sec = sec[obs].clone();
+                        glued_observable.append(&mut obs_sec);
+                    }
+                } else {}
+                glued_sections.push(glued_observable);
+            }
+            Ok(glued_sections)
+        }         
     }
 
 
